@@ -36,6 +36,7 @@ th{color:var(--mute);font-weight:500}
 .note{color:var(--mute);font-size:.8rem;margin:8px 0 0}
 .err{color:#c0392b;font-size:.85rem;min-height:1.2em;margin-top:6px}
 svg text{fill:var(--mute);font-size:10px}
+body.view .edit-only{display:none!important}
 </style>
 </head>
 <body>
@@ -51,7 +52,7 @@ svg text{fill:var(--mute);font-size:10px}
 <p class="note" id="tip"></p>
 </div>
 
-<div class="card">
+<div class="card edit-only">
 <h2>Add a meter reading</h2>
 <div class="grid">
 <div><label for="d">Date</label><input type="date" id="d"></div>
@@ -78,7 +79,7 @@ svg text{fill:var(--mute);font-size:10px}
 <p class="note">Readings are kept in your Google Sheet and shared by every device that has this address and password. Photos stay on the phone that took them.</p>
 </div>
 
-<div class="card">
+<div class="card edit-only">
 <h2>Backup and import</h2>
 <textarea id="io" rows="6" style="width:100%;box-sizing:border-box;padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:12px/1.4 ui-monospace,monospace" placeholder="Backup text appears here after Export. To import, paste a backup, or lines like 2025-01-31,4521.3,6.079,32.926,39.2 (date, meter reading, unit rate, standing charge, calorific value). The last three are optional."></textarea>
 <div class="grid"><button id="exp">Export backup</button><button id="imp">Import from box</button></div>
@@ -97,7 +98,7 @@ svg text{fill:var(--mute);font-size:10px}
 <div><label for="vat">VAT (%)</label><input type="number" id="vat" step="any" inputmode="decimal"></div>
 </div>
 <p class="note">Each new reading saves a copy of the rates shown here, so changing them later only affects readings you add after that. Copy yours from your latest bill or supplier app. Calorific value is on your bill and only used for m³ meters (UK conversion also uses 1.02264).</p>
-<button class="ghost" id="clear" style="margin-top:12px">Clear all data</button>
+<button class="ghost edit-only" id="clear" style="margin-top:12px">Clear all data</button>
 </div>
 </main>
 <div id="ov" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:20;align-items:center;justify-content:center;padding:12px;box-sizing:border-box"><img id="ovi" alt="Meter photo" style="max-width:100%;max-height:100%;border-radius:8px"></div>
@@ -125,9 +126,11 @@ function rows(){
   }
   return out;
 }
-var SY={url:"",key:"",done:false,pend:{},dels:{}};
-try{var rs=localStorage.getItem("gas-sync-v1");if(rs){var ps=JSON.parse(rs);if(ps&&typeof ps==="object"){SY.url=ps.url||"";SY.key=ps.key||"";SY.done=!!ps.done;SY.pend=ps.pend||{};SY.dels=ps.dels||{};}}}catch(e){}
+var SY={url:"",key:"",done:false,pend:{},dels:{},mode:"edit"};
+try{var rs=localStorage.getItem("gas-sync-v1");if(rs){var ps=JSON.parse(rs);if(ps&&typeof ps==="object"){SY.url=ps.url||"";SY.key=ps.key||"";SY.done=!!ps.done;SY.pend=ps.pend||{};SY.dels=ps.dels||{};SY.mode=ps.mode==="view"?"view":"edit";}}}catch(e){}
 function saveSY(){try{localStorage.setItem("gas-sync-v1",JSON.stringify(SY));}catch(e){}}
+function applyMode(){document.body.className=SY.mode==="view"?"view":"";}
+function stamp(){var t=new Date();return String(t.getHours()).padStart(2,"0")+":"+String(t.getMinutes()).padStart(2,"0");}
 function setStat(t){var e=$("sy_stat");if(e)e.textContent=t;}
 function mergeSync(local,remote,pend,dels,first){
   var R={},L={},out=[],push=[];
@@ -157,6 +160,13 @@ function syncNow(){
   syncing=true;setStat("Syncing...");
   gs().then(function(j){
     if(!j.ok)throw new Error(j.error||"failed");
+    SY.mode=j.mode==="view"?"view":"edit";applyMode();
+    if(SY.mode==="view"){
+      state.readings=j.readings;save();render();
+      SY.pend={};SY.dels={};SY.done=true;saveSY();
+      setStat("Synced at "+stamp()+". View only: this password cannot change readings.");
+      return;
+    }
     var res=mergeSync(state.readings,j.readings,SY.pend,SY.dels,!SY.done);
     var R={};j.readings.forEach(function(x){R[x.date]=1;});
     var dl=Object.keys(SY.dels).filter(function(d){return R[d];});
@@ -260,7 +270,7 @@ function render(){
   var sorted=state.readings.slice().sort(function(a,b){return a.date<b.date?1:-1;});
   sorted.forEach(function(rd){
     var m=null;R.forEach(function(x){if(x.date===rd.date)m=x;});
-    h+='<tr><td>'+rd.date+'</td><td>'+rd.value+'</td><td>'+(m?m.days:"")+'</td><td>'+(m?(m.use/m.days).toFixed(3):"")+'</td><td>'+(m?m.kwh.toFixed(1):"")+'</td><td>'+(m?money(m.cost):"")+'</td><td>'+(m?money(m.perDay):"")+'</td><td style="white-space:nowrap">'+(PH[rd.date]?'<button class="ghost" data-p="'+rd.date+'">📷</button> ':'')+'<button class="ghost" data-d="'+rd.date+'">×</button></td></tr>';
+    h+='<tr><td>'+rd.date+'</td><td>'+rd.value+'</td><td>'+(m?m.days:"")+'</td><td>'+(m?(m.use/m.days).toFixed(3):"")+'</td><td>'+(m?m.kwh.toFixed(1):"")+'</td><td>'+(m?money(m.cost):"")+'</td><td>'+(m?money(m.perDay):"")+'</td><td style="white-space:nowrap">'+(PH[rd.date]?'<button class="ghost" data-p="'+rd.date+'">📷</button> ':'')+'<button class="ghost edit-only" data-d="'+rd.date+'">×</button></td></tr>';
   });
   $("tbl").innerHTML=sorted.length?h:'<tr><td class="note">No readings yet.</td></tr>';
   Array.prototype.forEach.call(document.querySelectorAll("button[data-p]"),function(b){b.onclick=function(){pGet(b.getAttribute("data-p"),openImg);};});
@@ -305,6 +315,7 @@ $("ov").onclick=function(){this.style.display="none";};
 $("sy_url").value=SY.url;$("sy_key").value=SY.key;
 $("sy_go").onclick=function(){SY.url=$("sy_url").value.trim();SY.key=$("sy_key").value.trim();saveSY();if(!SY.url||!SY.key){setStat("Enter both the address and the password.");return;}syncNow();};
 document.addEventListener("visibilitychange",function(){if(!document.hidden)syncNow();});
+applyMode();
 syncNow();
 pKeys();
 if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){});});}
