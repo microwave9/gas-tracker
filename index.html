@@ -76,6 +76,12 @@ body.view .edit-only{display:none!important}
 <div style="grid-column:1/-1"><label for="sy_key">Password</label><input type="password" id="sy_key" autocomplete="off"></div></div>
 <button id="sy_go">Save and sync now</button>
 <div class="note" id="sy_stat"></div>
+<div class="edit-only" style="margin-top:14px;border-top:1px solid var(--line);padding-top:10px">
+<label for="vl_key">View-only password (to make a share link)</label><input type="password" id="vl_key" autocomplete="off">
+<button id="vl_go">Make view link</button>
+<input type="text" id="vl_out" readonly style="display:none;margin-top:8px">
+<div class="note" id="vl_stat"></div>
+</div>
 <p class="note">Readings are kept in your Google Sheet and shared by every device that has this address and password. Photos stay on the phone that took them.</p>
 </div>
 
@@ -312,7 +318,34 @@ $("imp").onclick=function(){
 };
 $("ph").onchange=function(){var f=this.files&&this.files[0],inp=this;if(!f)return;var img=new Image(),u=URL.createObjectURL(f);img.onload=function(){var sc=Math.min(1,1000/Math.max(img.width,img.height)),c=document.createElement("canvas");c.width=Math.round(img.width*sc);c.height=Math.round(img.height*sc);c.getContext("2d").drawImage(img,0,0,c.width,c.height);CUR=c.toDataURL("image/jpeg",0.7);URL.revokeObjectURL(u);showPrev();};img.src=u;inp.value="";};
 $("ov").onclick=function(){this.style.display="none";};
+(function(){
+  var m=(location.hash||"").match(/^#v=([A-Za-z0-9_-]+)$/);if(!m)return;
+  try{
+    var o=JSON.parse(atob(m[1].replace(/-/g,"+").replace(/_/g,"/")));
+    if(!o||!o.u||!o.k)throw 0;
+    if(SY.mode==="edit"&&SY.done&&SY.url){setStat("This device already has edit access, so the view link was ignored.");}
+    else{SY.url=o.u;SY.key=o.k;SY.mode="view";SY.done=false;SY.pend={};SY.dels={};saveSY();}
+  }catch(e){setStat("That view link could not be read.");}
+  try{history.replaceState(null,"",location.pathname+location.search);}catch(e){}
+})();
 $("sy_url").value=SY.url;$("sy_key").value=SY.key;
+$("vl_go").onclick=function(){
+  var vk=$("vl_key").value.trim(),st=$("vl_stat"),out=$("vl_out");
+  out.style.display="none";
+  if(!SY.url){st.textContent="Set up syncing first.";return;}
+  if(!vk){st.textContent="Enter the view-only password.";return;}
+  st.textContent="Checking...";
+  fetch(SY.url+(SY.url.indexOf("?")<0?"?":"&")+"key="+encodeURIComponent(vk)).then(function(r){return r.json();}).then(function(j){
+    if(!j.ok){st.textContent="That password was not accepted.";return;}
+    if(j.mode!=="view"){st.textContent="That is your edit password. Use the separate view-only password, so the link cannot change anything.";return;}
+    var b=btoa(JSON.stringify({u:SY.url,k:vk})).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+    var link=location.origin+location.pathname+"#v="+b;
+    out.value=link;out.style.display="block";
+    var done=function(t){st.textContent=t;};
+    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(link).then(function(){done("Link copied. Anyone with it can view your readings.");},function(){out.select();done("Copy the link above. Anyone with it can view your readings.");});}
+    else{out.select();done("Copy the link above. Anyone with it can view your readings.");}
+  }).catch(function(){st.textContent="Could not check the password (no connection?).";});
+};
 $("sy_go").onclick=function(){SY.url=$("sy_url").value.trim();SY.key=$("sy_key").value.trim();saveSY();if(!SY.url||!SY.key){setStat("Enter both the address and the password.");return;}syncNow();};
 document.addEventListener("visibilitychange",function(){if(!document.hidden)syncNow();});
 applyMode();
