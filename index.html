@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Gas Heating Cost Tracker</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#d9531e">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{--bg:#fafaf7;--card:#fff;--text:#1d1d1b;--mute:#6b6b66;--line:#e3e2dc;--acc:#d9531e;--bar:#e8895f;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light dark}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#161615;--card:#201f1e;--text:#f1f0ea;--mute:#a09f97;--line:#34332f;--acc:#ff7a45;--bar:#c4623a}}
+:root[data-theme="dark"]{--bg:#161615;--card:#201f1e;--text:#f1f0ea;--mute:#a09f97;--line:#34332f;--acc:#ff7a45;--bar:#c4623a}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:720px;margin:0 auto;padding:16px}
+h1{font-size:1.4rem;margin:8px 0 14px}
+h2{font-size:1rem;margin:0 0 10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+.stat b{display:block;font-size:1.4rem;color:var(--acc)}
+.stat span{color:var(--mute);font-size:.8rem}
+label{display:block;font-size:.8rem;color:var(--mute);margin-bottom:3px}
+input,select{width:100%;box-sizing:border-box;padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+button{padding:10px 14px;border:0;border-radius:8px;background:var(--acc);color:#fff;font:inherit;font-weight:600;cursor:pointer;margin-top:10px}
+button.ghost{background:transparent;color:var(--mute);border:1px solid var(--line);margin:0;padding:4px 8px;font-size:.8rem;font-weight:400}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.88rem}
+th,td{text-align:right;padding:7px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--mute);font-weight:500}
+.note{color:var(--mute);font-size:.8rem;margin:8px 0 0}
+.err{color:#c0392b;font-size:.85rem;min-height:1.2em;margin-top:6px}
+svg text{fill:var(--mute);font-size:10px}
+</style>
+</head>
+<body>
+<main>
+<h1>Gas heating cost tracker</h1>
+
+<div class="stats" id="stats"></div>
+
+<div class="card" style="margin-top:14px">
+<h2>Daily cost over time</h2>
+<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:8px"><div style="width:170px"><select id="rng"><option value="3">Last 3 months</option><option value="6">Last 6 months</option><option value="12" selected>Last 12 months</option><option value="all">All time</option></select></div><label style="display:flex;gap:6px;align-items:center;margin:0;font-size:.85rem;color:var(--text)"><input type="checkbox" id="mon" checked style="width:auto">Monthly estimate line</label></div>
+<div id="chart"></div>
+<p class="note" id="tip"></p>
+</div>
+
+<div class="card">
+<h2>Add a meter reading</h2>
+<div class="grid">
+<div><label for="d">Date</label><input type="date" id="d"></div>
+<div><label for="v">Meter reading</label><input type="number" id="v" step="any" inputmode="decimal" placeholder="e.g. 4521.3"></div>
+</div>
+<div style="margin-top:10px"><label for="ph" style="display:inline-block;padding:9px 12px;border:1px solid var(--line);border-radius:8px;cursor:pointer;color:var(--text);font-size:.9rem;margin:0">📷 Take photo of meter</label><input type="file" id="ph" accept="image/*" capture="environment" style="display:none"></div>
+<div id="prev"></div>
+<button id="add">Add reading</button>
+<div class="err" id="err"></div>
+<p class="note">Take a reading at roughly the same time each day. Cost for each interval is spread evenly across the days between readings.</p>
+</div>
+
+<div class="card">
+<h2>History</h2>
+<div class="scroll"><table id="tbl"></table></div>
+</div>
+
+<div class="card">
+<h2>Backup and import</h2>
+<textarea id="io" rows="6" style="width:100%;box-sizing:border-box;padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:12px/1.4 ui-monospace,monospace" placeholder="Backup text appears here after Export. To import, paste a backup, or lines like 2025-01-31,4521.3,6.079,32.926,39.2 (date, meter reading, unit rate, standing charge, calorific value). The last three are optional."></textarea>
+<div class="grid"><button id="exp">Export backup</button><button id="imp">Import from box</button></div>
+<div class="err" id="ioerr"></div>
+<p class="note">Export fills the box with your data. Copy it into a note or file to keep it safe. Importing a backup replaces everything; importing date,reading lines adds to what you have.</p>
+</div>
+
+<div class="card">
+<h2>Tariff and meter settings</h2>
+<div class="grid">
+<div><label for="rate">Unit rate (pence per kWh)</label><input type="number" id="rate" step="any" inputmode="decimal"></div>
+<div><label for="sc">Standing charge (pence per day)</label><input type="number" id="sc" step="any" inputmode="decimal"></div>
+<div><label for="unit">Meter shows</label><select id="unit"><option value="kwh">kWh</option><option value="m3">Cubic metres (m³)</option></select></div>
+<div><label for="cv">Calorific value (MJ/m³)</label><input type="number" id="cv" step="any" inputmode="decimal"></div>
+<div><label for="cur">Currency symbol</label><input type="text" id="cur" maxlength="3"></div>
+<div><label for="vat">VAT (%)</label><input type="number" id="vat" step="any" inputmode="decimal"></div>
+</div>
+<p class="note">Each new reading saves a copy of the rates shown here, so changing them later only affects readings you add after that. Copy yours from your latest bill or supplier app. Calorific value is on your bill and only used for m³ meters (UK conversion also uses 1.02264).</p>
+<button class="ghost" id="clear" style="margin-top:12px">Clear all data</button>
+</div>
+</main>
+<div id="ov" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.88);z-index:20;align-items:center;justify-content:center;padding:12px;box-sizing:border-box"><img id="ovi" alt="Meter photo" style="max-width:100%;max-height:100%;border-radius:8px"></div>
+
+<script>
+(function(){
+var KEY="gas-tracker-v1";
+var state={settings:{rate:6,sc:30,unit:"m3",cv:39.2,cur:"£",vat:5},readings:[]};
+try{var raw=localStorage.getItem(KEY);if(raw){var p=JSON.parse(raw);if(p&&p.settings&&p.readings){state=p;}}}catch(e){}
+if(state.settings.vat===undefined)state.settings.vat=5;
+function save(){try{localStorage.setItem(KEY,JSON.stringify(state));}catch(e){}}
+function $(id){return document.getElementById(id);}
+function dayNum(s){var a=s.split("-");return Date.UTC(+a[0],+a[1]-1,+a[2])/86400000;}
+function money(x){return state.settings.cur+x.toFixed(2);}
+function rows(){
+  var r=state.readings.slice().sort(function(a,b){return a.date<b.date?-1:a.date>b.date?1:0;});
+  var out=[],s=state.settings;
+  for(var i=1;i<r.length;i++){
+    var days=dayNum(r[i].date)-dayNum(r[i-1].date),use=r[i].value-r[i-1].value;
+    if(days<=0||use<0)continue;
+    var q=r[i],rate=q.rate!==undefined?q.rate:s.rate,sc=q.sc!==undefined?q.sc:s.sc,cv=q.cv!==undefined?q.cv:s.cv;
+    var kwh=s.unit==="kwh"?use:use*1.02264*cv/3.6;
+    var cost=(kwh*rate/100+sc/100*days)*(1+(s.vat||0)/100);
+    out.push({date:r[i].date,days:days,use:use,kwh:kwh,cost:cost,perDay:cost/days});
+  }
+  return out;
+}
+var DB=null,PH={},CUR=null;
+function idb(cb){if(DB)return cb(DB);try{var rq=indexedDB.open('gas-photos',1);rq.onupgradeneeded=function(){rq.result.createObjectStore('p');};rq.onsuccess=function(){DB=rq.result;cb(DB);};rq.onerror=function(){cb(null);};}catch(e){cb(null);}}
+function pPut(k,v){idb(function(db){if(!db)return;try{var t=db.transaction('p','readwrite');t.objectStore('p').put(v,k);t.oncomplete=function(){PH[k]=1;render();};}catch(e){}});}
+function pGet(k,cb){idb(function(db){if(!db)return cb(null);try{var r=db.transaction('p').objectStore('p').get(k);r.onsuccess=function(){cb(r.result||null);};r.onerror=function(){cb(null);};}catch(e){cb(null);}});}
+function pDel(k){delete PH[k];idb(function(db){if(!db)return;try{db.transaction('p','readwrite').objectStore('p').delete(k);}catch(e){}});}
+function pKeys(){idb(function(db){if(!db)return;try{var r=db.transaction('p').objectStore('p').getAllKeys();r.onsuccess=function(){r.result.forEach(function(k){PH[k]=1;});render();};}catch(e){}});}
+function openImg(src){if(!src)return;$('ovi').src=src;$('ov').style.display='flex';}
+function showPrev(){var e=$('prev');if(!CUR){e.innerHTML='';return;}e.innerHTML='<div style="display:flex;gap:10px;align-items:flex-end;margin-top:8px"><img id="pv" alt="Meter photo" src="'+CUR+'" style="max-height:140px;max-width:60%;border-radius:8px;border:1px solid var(--line)"><button class="ghost" id="pvx">Remove photo</button></div><p class="note">Tap the photo to enlarge it, then type the reading above.</p>';$('pvx').onclick=function(){CUR=null;showPrev();};$('pv').onclick=function(){openImg(CUR);};}
+var M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+var CH={m:12,sel:null};
+function fmt(dn){var d=new Date(dn*86400000);return d.getUTCDate()+' '+M[d.getUTCMonth()]+' '+d.getUTCFullYear();}
+function niceStep(v){var p=Math.pow(10,Math.floor(Math.log(v)/Math.LN10)),f=v/p;return (f<=1?1:f<=2?2:f<=5?5:10)*p;}
+function desc(x){var u=state.settings.unit==='kwh'?'kWh':'m³';return fmt(dayNum(x.date)-x.days)+' to '+fmt(dayNum(x.date))+' ('+x.days+(x.days===1?' day':' days')+'): '+money(x.perDay)+' per day, '+(x.use/x.days).toFixed(3)+' '+u+'/day, '+money(x.cost)+' total';}
+function monthly(R){
+  var acc={};
+  R.forEach(function(x){
+    var e=dayNum(x.date),b=e-x.days;
+    for(var d=b;d<e;d++){var dt=new Date(d*86400000),k=dt.getUTCFullYear()*12+dt.getUTCMonth();if(!acc[k])acc[k]={s:0,n:0};acc[k].s+=x.perDay;acc[k].n++;}
+  });
+  var out=[];
+  Object.keys(acc).map(Number).sort(function(a,b){return a-b;}).forEach(function(k){
+    var yr=Math.floor(k/12),mo=k%12,d0=Date.UTC(yr,mo,1)/86400000,dim=Date.UTC(yr,mo+1,1)/86400000-d0,a=acc[k];
+    if(a.n/dim<0.5)return;
+    var v=a.s/a.n;
+    out.push({x:d0+dim/2,v:v,txt:M[mo]+' '+yr+': estimated average '+money(v)+' per day'+(a.n<dim?' (from '+a.n+' of '+dim+' days with data)':'')});
+  });
+  return out;
+}
+function chart(){
+  var R=rows(),el=$('chart'),tip=$('tip');
+  if(!R.length){el.innerHTML='<p class="note">Add at least two readings to see the chart.</p>';tip.textContent='';return;}
+  var endD=dayNum(R[R.length-1].date),firstD=dayNum(R[0].date)-R[0].days;
+  var startD=CH.m==='all'?firstD:Math.max(firstD,endD-Math.round(CH.m*30.4375));
+  var span=Math.max(1,endD-startD);
+  var cw=Math.max(300,el.clientWidth||340),L=42,RR=8,T=10,B=26,H=220,pw=cw-L-RR,ph=H-T-B,ppd=pw/span;
+  var vis=R.filter(function(x){return dayNum(x.date)>startD;});
+  var MP=monthly(R).filter(function(q){return q.x>=startD&&q.x<=endD;});
+  var mx=Math.max.apply(null,vis.map(function(x){return x.perDay;}).concat(MP.map(function(q){return q.v;}),[0.01]));
+  var st=niceStep(mx/4),top=Math.ceil(mx/st-1e-9)*st;
+  var g='<svg width="'+cw+'" height="'+H+'" viewBox="0 0 '+cw+' '+H+'">';
+  for(var v=0;v<=top+st/2;v+=st){var y=T+ph-ph*v/top;g+='<line x1="'+L+'" x2="'+(cw-RR)+'" y1="'+y+'" y2="'+y+'" stroke="var(--line)"/><text x="'+(L-4)+'" y="'+(y+3)+'" text-anchor="end">'+state.settings.cur+v.toFixed(2)+'</text>';}
+  var sel=null;
+  vis.forEach(function(x){
+    var e=dayNum(x.date),b=Math.max(e-x.days,startD),xs=L+(b-startD)*ppd,w=(e-b)*ppd,h=ph*x.perDay/top;
+    var sk=CH.sel===x.date?' stroke="var(--acc)" stroke-width="2"':(w>3?' stroke="var(--card)" stroke-width=".6"':'');
+    if(CH.sel===x.date)sel=x;
+    g+='<rect data-e="'+x.date+'" x="'+xs+'" y="'+(T+ph-h)+'" width="'+w+'" height="'+h+'" fill="var(--bar)"'+sk+'><title>'+desc(x)+'</title></rect>';
+  });
+  var showM=$('mon').checked&&MP.length>0;
+  if(showM){
+    var pts=MP.map(function(q){return (L+(q.x-startD)*ppd)+','+(T+ph-ph*q.v/top);});
+    g+='<polyline points="'+pts.join(' ')+'" fill="none" stroke="var(--acc)" stroke-width="2" stroke-linejoin="round"/>';
+    MP.forEach(function(q,j){var c=pts[j].split(',');g+='<circle data-m="'+j+'" cx="'+c[0]+'" cy="'+c[1]+'" r="4" fill="var(--acc)" stroke="var(--card)" stroke-width="1.5"><title>'+q.txt+'</title></circle>';});
+  }
+  var ks=[1,2,3,6,12],need=Math.ceil(58/(ppd*30.4375)),k=12;
+  for(var i=0;i<ks.length;i++){if(ks[i]>=need){k=ks[i];break;}}
+  var d0=new Date(startD*86400000),yy=d0.getUTCFullYear(),mm=d0.getUTCMonth();
+  for(;;){
+    var td=Date.UTC(yy,mm,1)/86400000;if(td>endD)break;
+    if(td>=startD&&mm%k===0){var tx=L+(td-startD)*ppd;g+='<line x1="'+tx+'" x2="'+tx+'" y1="'+(T+ph)+'" y2="'+(T+ph+4)+'" stroke="var(--mute)"/><text x="'+tx+'" y="'+(H-8)+'" text-anchor="middle">'+M[mm]+' ’'+String(yy).slice(2)+'</text>';}
+    mm++;if(mm>11){mm=0;yy++;}
+  }
+  g+='<line x1="'+L+'" x2="'+(cw-RR)+'" y1="'+(T+ph)+'" y2="'+(T+ph)+'" stroke="var(--mute)"/></svg>';
+  el.innerHTML=g;
+  Array.prototype.forEach.call(el.querySelectorAll('rect[data-e]'),function(r){r.onclick=function(){CH.sel=r.getAttribute('data-e');CH.mt=null;chart();};});
+  Array.prototype.forEach.call(el.querySelectorAll('circle[data-m]'),function(c){c.onclick=function(){CH.sel=null;CH.mt=MP[+c.getAttribute('data-m')].txt;chart();};});
+  tip.textContent=sel?desc(sel):(showM&&CH.mt?CH.mt:'Each bar spans the days between two readings, so its width is the length of that interval. '+(showM?'The line joins monthly estimates, one point in the middle of each month. ':'')+'Tap a bar or point for details.');
+}
+function render(){
+  var s=state.settings,R=rows();
+  $("rate").value=s.rate;$("sc").value=s.sc;$("unit").value=s.unit;$("cv").value=s.cv;$("cur").value=s.cur;$("vat").value=s.vat;
+  $("cv").disabled=s.unit==="kwh";
+  var last=R.length?R[R.length-1]:null;
+  var recent=R.slice(-7),avg=recent.length?recent.reduce(function(a,x){return a+x.perDay;},0)/recent.length:0;
+  var now=new Date(),ym=now.getFullYear()+"-"+String(now.getMonth()+1).padStart(2,"0");
+  var month=R.filter(function(x){return x.date.slice(0,7)===ym;}).reduce(function(a,x){return a+x.cost;},0);
+  var total=R.reduce(function(a,x){return a+x.cost;},0);
+  $("stats").innerHTML=
+   '<div class="stat"><b>'+(last?money(last.perDay):"–")+'</b><span>Latest daily cost</span></div>'+
+   '<div class="stat"><b>'+(R.length?money(avg):"–")+'</b><span>Average, last 7 intervals</span></div>'+
+   '<div class="stat"><b>'+money(month)+'</b><span>This month so far</span></div>'+
+   '<div class="stat"><b>'+money(total)+'</b><span>Total tracked</span></div>';
+  chart();
+  // table
+  var h='<tr><th>Date</th><th>Reading</th><th>Days</th><th>'+(s.unit==="kwh"?"kWh":"m³")+'/day</th><th>kWh</th><th>Cost</th><th>Per day</th><th></th></tr>';
+  var sorted=state.readings.slice().sort(function(a,b){return a.date<b.date?1:-1;});
+  sorted.forEach(function(rd){
+    var m=null;R.forEach(function(x){if(x.date===rd.date)m=x;});
+    h+='<tr><td>'+rd.date+'</td><td>'+rd.value+'</td><td>'+(m?m.days:"")+'</td><td>'+(m?(m.use/m.days).toFixed(3):"")+'</td><td>'+(m?m.kwh.toFixed(1):"")+'</td><td>'+(m?money(m.cost):"")+'</td><td>'+(m?money(m.perDay):"")+'</td><td style="white-space:nowrap">'+(PH[rd.date]?'<button class="ghost" data-p="'+rd.date+'">📷</button> ':'')+'<button class="ghost" data-d="'+rd.date+'">×</button></td></tr>';
+  });
+  $("tbl").innerHTML=sorted.length?h:'<tr><td class="note">No readings yet.</td></tr>';
+  Array.prototype.forEach.call(document.querySelectorAll("button[data-p]"),function(b){b.onclick=function(){pGet(b.getAttribute("data-p"),openImg);};});
+  Array.prototype.forEach.call(document.querySelectorAll("button[data-d]"),function(b){
+    b.onclick=function(){state.readings=state.readings.filter(function(x){return x.date!==b.getAttribute("data-d");});pDel(b.getAttribute("data-d"));save();render();};
+  });
+}
+$("add").onclick=function(){
+  var d=$("d").value,v=parseFloat($("v").value),e=$("err");e.textContent="";
+  if(!d||isNaN(v)){e.textContent="Enter a date and a meter reading.";return;}
+  var prev=state.readings.filter(function(x){return x.date<d;}).sort(function(a,b){return a.date<b.date?1:-1;})[0];
+  if(prev&&v<prev.value){e.textContent="That is lower than the previous reading ("+prev.value+").";return;}
+  state.readings=state.readings.filter(function(x){return x.date!==d;});
+  state.readings.push({date:d,value:v,rate:state.settings.rate,sc:state.settings.sc,cv:state.settings.cv});
+  if(CUR){pPut(d,CUR);CUR=null;showPrev();}
+  $("v").value="";save();render();
+};
+["rate","sc","cv","vat"].forEach(function(id){$(id).onchange=function(){var n=parseFloat(this.value);if(!isNaN(n)){state.settings[id]=n;save();}render();};});
+$("unit").onchange=function(){state.settings.unit=this.value;save();render();};
+$("cur").onchange=function(){state.settings.cur=this.value||"£";save();render();};
+$("clear").onclick=function(){if(confirm("Delete all readings and photos?")){state.readings=[];Object.keys(PH).forEach(pDel);save();render();}};
+$("exp").onclick=function(){var t=$("io");t.value=JSON.stringify(state);t.focus();t.select();$("ioerr").textContent="Backup ready. Copy it and keep it somewhere safe.";};
+$("imp").onclick=function(){
+  var txt=$("io").value.trim(),e=$("ioerr");
+  if(!txt){e.textContent="Paste a backup or date,reading lines first.";return;}
+  try{
+    if(txt.charAt(0)==="{"){var p=JSON.parse(txt);if(!p.settings||!p.readings)throw 0;state=p;if(state.settings.vat===undefined)state.settings.vat=5;}
+    else{
+      var n=0,map={};
+      state.readings.forEach(function(x){map[x.date]=x;});
+      txt.split(/\r?\n/).forEach(function(l){var c=l.split(/[,\t;]/),d=(c[0]||"").trim(),v=parseFloat(c[1]);if(/^\d{4}-\d{2}-\d{2}$/.test(d)&&!isNaN(v)){var o={date:d,value:v};if(c.length>=5){var a=parseFloat(c[2]),b=parseFloat(c[3]),k=parseFloat(c[4]);if(!isNaN(a)&&!isNaN(b)&&!isNaN(k)){o.rate=a;o.sc=b;o.cv=k;}}map[d]=o;n++;}});
+      if(!n)throw 0;
+      state.readings=Object.keys(map).map(function(d){return map[d];});
+    }
+    save();render();e.textContent="Imported.";
+  }catch(x){e.textContent="Could not read that. Use a backup, or lines like 2025-01-31,4521.3";}
+};
+$("ph").onchange=function(){var f=this.files&&this.files[0],inp=this;if(!f)return;var img=new Image(),u=URL.createObjectURL(f);img.onload=function(){var sc=Math.min(1,1000/Math.max(img.width,img.height)),c=document.createElement("canvas");c.width=Math.round(img.width*sc);c.height=Math.round(img.height*sc);c.getContext("2d").drawImage(img,0,0,c.width,c.height);CUR=c.toDataURL("image/jpeg",0.7);URL.revokeObjectURL(u);showPrev();};img.src=u;inp.value="";};
+$("ov").onclick=function(){this.style.display="none";};
+pKeys();
+if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){});});}
+$("rng").onchange=function(){CH.m=this.value==="all"?"all":parseInt(this.value,10);chart();};
+$("mon").onchange=function(){chart();};
+window.addEventListener("resize",chart);
+var t=new Date();$("d").value=t.getFullYear()+"-"+String(t.getMonth()+1).padStart(2,"0")+"-"+String(t.getDate()).padStart(2,"0");
+render();
+})();
+</script>
+</body>
+</html>
