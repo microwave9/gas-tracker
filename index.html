@@ -9,10 +9,10 @@
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <style>
-:root{--bg:#fafaf7;--card:#fff;--text:#1d1d1b;--mute:#6b6b66;--line:#e3e2dc;--acc:#d9531e;--bar:#e8895f;
+:root{--bg:#fafaf7;--card:#fff;--text:#1d1d1b;--mute:#6b6b66;--line:#e3e2dc;--acc:#d9531e;--bar:#e8895f;--sc:#7a4a2a;--use:#4a8fb5;
 box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light dark}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#161615;--card:#201f1e;--text:#f1f0ea;--mute:#a09f97;--line:#34332f;--acc:#ff7a45;--bar:#c4623a}}
-:root[data-theme="dark"]{--bg:#161615;--card:#201f1e;--text:#f1f0ea;--mute:#a09f97;--line:#34332f;--acc:#ff7a45;--bar:#c4623a}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#161615;--card:#201f1e;--text:#f1f0ea;--mute:#a09f97;--line:#34332f;--acc:#ff7a45;--bar:#c4623a;--sc:#9b6b43;--use:#5aa0c4}}
+:root[data-theme="dark"]{--bg:#161615;--card:#201f1e;--text:#f1f0ea;--mute:#a09f97;--line:#34332f;--acc:#ff7a45;--bar:#c4623a;--sc:#9b6b43;--use:#5aa0c4}
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
 body{margin:0;background:var(--bg);color:var(--text);font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 main{max-width:720px;margin:0 auto;padding:16px}
@@ -46,9 +46,10 @@ body.view .edit-only{display:none!important}
 <div class="stats" id="stats"></div>
 
 <div class="card" style="margin-top:14px">
-<h2>Daily cost over time</h2>
-<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:8px"><div style="width:170px"><select id="rng"><option value="3">Last 3 months</option><option value="6">Last 6 months</option><option value="12" selected>Last 12 months</option><option value="all">All time</option></select></div><label style="display:flex;gap:6px;align-items:center;margin:0;font-size:.85rem;color:var(--text)"><input type="checkbox" id="mon" checked style="width:auto">Monthly estimate line</label></div>
+<h2 id="ct">Daily cost over time</h2>
+<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:8px"><div style="width:170px"><select id="rng"><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="91">Last 3 months</option><option value="183">Last 6 months</option><option value="365" selected>Last 12 months</option><option value="all">All time</option></select></div><div style="width:170px"><select id="met"><option value="cost">Cost per day</option><option value="use">Gas used per day</option></select></div><label style="display:flex;gap:6px;align-items:center;margin:0;font-size:.85rem;color:var(--text)"><input type="checkbox" id="mon" checked style="width:auto">Monthly estimate line</label></div>
 <div id="chart"></div>
+<div id="leg" class="note" style="display:flex;gap:14px;flex-wrap:wrap"></div>
 <p class="note" id="tip"></p>
 </div>
 
@@ -128,7 +129,7 @@ function rows(){
     var q=r[i],rate=q.rate!==undefined?q.rate:s.rate,sc=q.sc!==undefined?q.sc:s.sc,cv=q.cv!==undefined?q.cv:s.cv;
     var kwh=s.unit==="kwh"?use:use*1.02264*cv/3.6;
     var cost=(kwh*rate/100+sc/100*days)*(1+(s.vat||0)/100);
-    out.push({date:r[i].date,days:days,use:use,kwh:kwh,cost:cost,perDay:cost/days});
+    out.push({date:r[i].date,days:days,use:use,kwh:kwh,cost:cost,perDay:cost/days,scd:sc/100*(1+(s.vat||0)/100)});
   }
   return out;
 }
@@ -197,44 +198,59 @@ function pKeys(){idb(function(db){if(!db)return;try{var r=db.transaction('p').ob
 function openImg(src){if(!src)return;$('ovi').src=src;$('ov').style.display='flex';}
 function showPrev(){var e=$('prev');if(!CUR){e.innerHTML='';return;}e.innerHTML='<div style="display:flex;gap:10px;align-items:flex-end;margin-top:8px"><img id="pv" alt="Meter photo" src="'+CUR+'" style="max-height:140px;max-width:60%;border-radius:8px;border:1px solid var(--line)"><button class="ghost" id="pvx">Remove photo</button></div><p class="note">Tap the photo to enlarge it, then type the reading above.</p>';$('pvx').onclick=function(){CUR=null;showPrev();};$('pv').onclick=function(){openImg(CUR);};}
 var M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-var CH={m:12,sel:null};
+var CH={m:365,sel:null,met:"cost"};
 function fmt(dn){var d=new Date(dn*86400000);return d.getUTCDate()+' '+M[d.getUTCMonth()]+' '+d.getUTCFullYear();}
 function niceStep(v){var p=Math.pow(10,Math.floor(Math.log(v)/Math.LN10)),f=v/p;return (f<=1?1:f<=2?2:f<=5?5:10)*p;}
-function desc(x){var u=state.settings.unit==='kwh'?'kWh':'m³';return fmt(dayNum(x.date)-x.days)+' to '+fmt(dayNum(x.date))+' ('+x.days+(x.days===1?' day':' days')+'): '+money(x.perDay)+' per day, '+(x.use/x.days).toFixed(3)+' '+u+'/day, '+money(x.cost)+' total';}
+function unitLbl(){return state.settings.unit==='kwh'?'kWh':'m³';}
+function desc(x){var u=unitLbl(),d=fmt(dayNum(x.date)-x.days)+' to '+fmt(dayNum(x.date))+' ('+x.days+(x.days===1?' day':' days')+'): ',g=(x.use/x.days).toFixed(3)+' '+u+'/day';
+  return d+(CH.met==='use'?g+', '+money(x.perDay)+' per day, '+money(x.cost)+' total':money(x.perDay)+' per day (usage '+money(x.perDay-x.scd)+' + standing charge '+money(x.scd)+'), '+g+', '+money(x.cost)+' total');}
+function metric(x){return CH.met==='use'?x.use/x.days:x.perDay;}
 function monthly(R){
   var acc={};
   R.forEach(function(x){
-    var e=dayNum(x.date),b=e-x.days;
-    for(var d=b;d<e;d++){var dt=new Date(d*86400000),k=dt.getUTCFullYear()*12+dt.getUTCMonth();if(!acc[k])acc[k]={s:0,n:0};acc[k].s+=x.perDay;acc[k].n++;}
+    var e=dayNum(x.date),b=e-x.days,v=metric(x);
+    for(var d=b;d<e;d++){var dt=new Date(d*86400000),k=dt.getUTCFullYear()*12+dt.getUTCMonth();if(!acc[k])acc[k]={s:0,n:0};acc[k].s+=v;acc[k].n++;}
   });
   var out=[];
   Object.keys(acc).map(Number).sort(function(a,b){return a-b;}).forEach(function(k){
     var yr=Math.floor(k/12),mo=k%12,d0=Date.UTC(yr,mo,1)/86400000,dim=Date.UTC(yr,mo+1,1)/86400000-d0,a=acc[k];
     if(a.n/dim<0.5)return;
     var v=a.s/a.n;
-    out.push({x:d0+dim/2,v:v,txt:M[mo]+' '+yr+': estimated average '+money(v)+' per day'+(a.n<dim?' (from '+a.n+' of '+dim+' days with data)':'')});
+    out.push({x:d0+dim/2,v:v,txt:M[mo]+' '+yr+': estimated average '+(CH.met==='use'?v.toFixed(3)+' '+unitLbl():money(v))+' per day'+(a.n<dim?' (from '+a.n+' of '+dim+' days with data)':'')});
   });
   return out;
 }
 function chart(){
-  var R=rows(),el=$('chart'),tip=$('tip');
-  if(!R.length){el.innerHTML='<p class="note">Add at least two readings to see the chart.</p>';tip.textContent='';return;}
-  var endD=dayNum(R[R.length-1].date),firstD=dayNum(R[0].date)-R[0].days;
-  var startD=CH.m==='all'?firstD:Math.max(firstD,endD-Math.round(CH.m*30.4375));
+  var R=rows(),el=$('chart'),tip=$('tip'),leg=$('leg'),use=CH.met==='use',u=unitLbl();
+  $('ct').textContent=use?'Daily gas use over time ('+u+' per day)':'Daily cost over time';
+  if(!R.length){el.innerHTML='<p class="note">Add at least two readings to see the chart.</p>';tip.textContent='';leg.innerHTML='';return;}
+  var now=new Date(),todayD=Date.UTC(now.getFullYear(),now.getMonth(),now.getDate())/86400000;
+  var short=CH.m===7||CH.m===30;
+  var lastD=dayNum(R[R.length-1].date),firstD=dayNum(R[0].date)-R[0].days;
+  var endD=short?todayD+1:lastD;
+  var startD=CH.m==='all'?firstD:(short?endD-CH.m:Math.max(firstD,endD-CH.m));
   var span=Math.max(1,endD-startD);
   var cw=Math.max(300,el.clientWidth||340),L=42,RR=8,T=10,B=26,H=220,pw=cw-L-RR,ph=H-T-B,ppd=pw/span;
-  var vis=R.filter(function(x){return dayNum(x.date)>startD;});
+  var vis=R.filter(function(x){var e=dayNum(x.date);return e>startD&&e-x.days<endD;});
   var MP=monthly(R).filter(function(q){return q.x>=startD&&q.x<=endD;});
-  var mx=Math.max.apply(null,vis.map(function(x){return x.perDay;}).concat(MP.map(function(q){return q.v;}),[0.01]));
-  var st=niceStep(mx/4),top=Math.ceil(mx/st-1e-9)*st;
+  var mx=Math.max.apply(null,vis.map(metric).concat(MP.map(function(q){return q.v;}),[0.01]));
+  var st=niceStep(mx/4),top=Math.ceil(mx/st-1e-9)*st,dec=st>=1?0:(st>=0.1?1:2);
   var g='<svg width="'+cw+'" height="'+H+'" viewBox="0 0 '+cw+' '+H+'">';
-  for(var v=0;v<=top+st/2;v+=st){var y=T+ph-ph*v/top;g+='<line x1="'+L+'" x2="'+(cw-RR)+'" y1="'+y+'" y2="'+y+'" stroke="var(--line)"/><text x="'+(L-4)+'" y="'+(y+3)+'" text-anchor="end">'+state.settings.cur+v.toFixed(2)+'</text>';}
+  for(var v=0;v<=top+st/2;v+=st){var y=T+ph-ph*v/top;g+='<line x1="'+L+'" x2="'+(cw-RR)+'" y1="'+y+'" y2="'+y+'" stroke="var(--line)"/><text x="'+(L-4)+'" y="'+(y+3)+'" text-anchor="end">'+(use?v.toFixed(dec):state.settings.cur+v.toFixed(2))+'</text>';}
   var sel=null;
   vis.forEach(function(x){
-    var e=dayNum(x.date),b=Math.max(e-x.days,startD),xs=L+(b-startD)*ppd,w=(e-b)*ppd,h=ph*x.perDay/top;
-    var sk=CH.sel===x.date?' stroke="var(--acc)" stroke-width="2"':(w>3?' stroke="var(--card)" stroke-width=".6"':'');
+    var e=Math.min(dayNum(x.date),endD),b=Math.max(dayNum(x.date)-x.days,startD),xs=L+(b-startD)*ppd,w=(e-b)*ppd;
+    var sk=w>3?' stroke="var(--card)" stroke-width=".6"':'';
     if(CH.sel===x.date)sel=x;
-    g+='<rect data-e="'+x.date+'" x="'+xs+'" y="'+(T+ph-h)+'" width="'+w+'" height="'+h+'" fill="var(--bar)"'+sk+'><title>'+desc(x)+'</title></rect>';
+    g+='<g data-e="'+x.date+'"><title>'+desc(x)+'</title>';
+    if(use){var h=ph*metric(x)/top;g+='<rect x="'+xs+'" y="'+(T+ph-h)+'" width="'+w+'" height="'+h+'" fill="var(--use)"'+sk+'/>';}
+    else{
+      var ht=ph*x.perDay/top,hs=Math.min(ht,ph*x.scd/top);
+      g+='<rect x="'+xs+'" y="'+(T+ph-ht)+'" width="'+w+'" height="'+(ht-hs)+'" fill="var(--bar)"'+sk+'/>';
+      g+='<rect x="'+xs+'" y="'+(T+ph-hs)+'" width="'+w+'" height="'+hs+'" fill="var(--sc)"'+sk+'/>';
+    }
+    if(CH.sel===x.date)g+='<rect x="'+xs+'" y="'+(T+ph-ph*metric(x)/top)+'" width="'+w+'" height="'+(ph*metric(x)/top)+'" fill="none" stroke="var(--acc)" stroke-width="2"/>';
+    g+='</g>';
   });
   var showM=$('mon').checked&&MP.length>0;
   if(showM){
@@ -244,17 +260,25 @@ function chart(){
   }
   var ks=[1,2,3,6,12],need=Math.ceil(58/(ppd*30.4375)),k=12;
   for(var i=0;i<ks.length;i++){if(ks[i]>=need){k=ks[i];break;}}
+  if(span<=62){
+    var sp=span<=10?1:span<=21?2:5;
+    for(var q2=startD;q2<endD;q2+=sp){
+      var cx=L+(q2-startD+0.5)*ppd,dd2=new Date(q2*86400000);
+      g+='<line x1="'+cx+'" x2="'+cx+'" y1="'+(T+ph)+'" y2="'+(T+ph+4)+'" stroke="var(--mute)"/><text x="'+cx+'" y="'+(H-8)+'" text-anchor="middle">'+dd2.getUTCDate()+' '+M[dd2.getUTCMonth()]+'</text>';
+    }
+  }
   var d0=new Date(startD*86400000),yy=d0.getUTCFullYear(),mm=d0.getUTCMonth();
-  for(;;){
+  for(;span>62;){
     var td=Date.UTC(yy,mm,1)/86400000;if(td>endD)break;
     if(td>=startD&&mm%k===0){var tx=L+(td-startD)*ppd;g+='<line x1="'+tx+'" x2="'+tx+'" y1="'+(T+ph)+'" y2="'+(T+ph+4)+'" stroke="var(--mute)"/><text x="'+tx+'" y="'+(H-8)+'" text-anchor="middle">'+M[mm]+' ’'+String(yy).slice(2)+'</text>';}
     mm++;if(mm>11){mm=0;yy++;}
   }
   g+='<line x1="'+L+'" x2="'+(cw-RR)+'" y1="'+(T+ph)+'" y2="'+(T+ph)+'" stroke="var(--mute)"/></svg>';
   el.innerHTML=g;
-  Array.prototype.forEach.call(el.querySelectorAll('rect[data-e]'),function(r){r.onclick=function(){CH.sel=r.getAttribute('data-e');CH.mt=null;chart();};});
+  leg.innerHTML=(use?'<span><b style="color:var(--use)">■</b> Gas used</span>':'<span><b style="color:var(--bar)">■</b> Usage cost</span><span><b style="color:var(--sc)">■</b> Standing charge</span>')+(showM?'<span><b style="color:var(--acc)">●</b> Monthly estimate</span>':'');
+  Array.prototype.forEach.call(el.querySelectorAll('g[data-e]'),function(r){r.onclick=function(){CH.sel=r.getAttribute('data-e');CH.mt=null;chart();};});
   Array.prototype.forEach.call(el.querySelectorAll('circle[data-m]'),function(c){c.onclick=function(){CH.sel=null;CH.mt=MP[+c.getAttribute('data-m')].txt;chart();};});
-  tip.textContent=sel?desc(sel):(showM&&CH.mt?CH.mt:'Each bar spans the days between two readings, so its width is the length of that interval. '+(showM?'The line joins monthly estimates, one point in the middle of each month. ':'')+'Tap a bar or point for details.');
+  tip.textContent=sel?desc(sel):(showM&&CH.mt?CH.mt:'Each bar spans the days between two readings, so its width is the length of that interval. '+(short?'Days with no bar have no completed reading yet. ':'')+(showM?'The line joins monthly estimates, one point in the middle of each month. ':'')+'Tap a bar or point for details.');
 }
 function render(){
   var s=state.settings,R=rows();
@@ -352,6 +376,7 @@ applyMode();
 syncNow();
 pKeys();
 if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){});});}
+$("met").onchange=function(){CH.met=this.value;CH.sel=null;CH.mt=null;chart();};
 $("rng").onchange=function(){CH.m=this.value==="all"?"all":parseInt(this.value,10);chart();};
 $("mon").onchange=function(){chart();};
 window.addEventListener("resize",chart);
