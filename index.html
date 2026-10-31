@@ -70,6 +70,15 @@ svg text{fill:var(--mute);font-size:10px}
 </div>
 
 <div class="card">
+<h2>Sync with Google Sheet</h2>
+<div class="grid"><div style="grid-column:1/-1"><label for="sy_url">Sheet address (web app URL)</label><input type="text" id="sy_url" autocomplete="off" placeholder="https://script.google.com/macros/s/.../exec"></div>
+<div style="grid-column:1/-1"><label for="sy_key">Password</label><input type="password" id="sy_key" autocomplete="off"></div></div>
+<button id="sy_go">Save and sync now</button>
+<div class="note" id="sy_stat"></div>
+<p class="note">Readings are kept in your Google Sheet and shared by every device that has this address and password. Photos stay on the phone that took them.</p>
+</div>
+
+<div class="card">
 <h2>Backup and import</h2>
 <textarea id="io" rows="6" style="width:100%;box-sizing:border-box;padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:12px/1.4 ui-monospace,monospace" placeholder="Backup text appears here after Export. To import, paste a backup, or lines like 2025-01-31,4521.3,6.079,32.926,39.2 (date, meter reading, unit rate, standing charge, calorific value). The last three are optional."></textarea>
 <div class="grid"><button id="exp">Export backup</button><button id="imp">Import from box</button></div>
@@ -115,6 +124,53 @@ function rows(){
     out.push({date:r[i].date,days:days,use:use,kwh:kwh,cost:cost,perDay:cost/days});
   }
   return out;
+}
+var SY={url:"",key:"",done:false,pend:{},dels:{}};
+try{var rs=localStorage.getItem("gas-sync-v1");if(rs){var ps=JSON.parse(rs);if(ps&&typeof ps==="object"){SY.url=ps.url||"";SY.key=ps.key||"";SY.done=!!ps.done;SY.pend=ps.pend||{};SY.dels=ps.dels||{};}}}catch(e){}
+function saveSY(){try{localStorage.setItem("gas-sync-v1",JSON.stringify(SY));}catch(e){}}
+function setStat(t){var e=$("sy_stat");if(e)e.textContent=t;}
+function mergeSync(local,remote,pend,dels,first){
+  var R={},L={},out=[],push=[];
+  remote.forEach(function(x){R[x.date]=x;});
+  local.forEach(function(x){L[x.date]=x;});
+  Object.keys(R).forEach(function(d){
+    if(dels[d])return;
+    if(pend[d]&&L[d]){out.push(L[d]);push.push(L[d]);}else{out.push(R[d]);}
+  });
+  Object.keys(L).forEach(function(d){
+    if(R[d])return;
+    if(first||pend[d]){out.push(L[d]);push.push(L[d]);}
+  });
+  return {merged:out,push:push};
+}
+function gs(opts){
+  var u=opts?SY.url:SY.url+(SY.url.indexOf("?")<0?"?":"&")+"key="+encodeURIComponent(SY.key);
+  return fetch(u,opts).then(function(r){return r.json();});
+}
+function post(body){
+  body.key=SY.key;
+  return gs({method:"POST",body:JSON.stringify(body)}).then(function(j){if(!j.ok)throw new Error(j.error||"failed");return j;});
+}
+var syncing=false;
+function syncNow(){
+  if(!SY.url||!SY.key||syncing)return;
+  syncing=true;setStat("Syncing...");
+  gs().then(function(j){
+    if(!j.ok)throw new Error(j.error||"failed");
+    var res=mergeSync(state.readings,j.readings,SY.pend,SY.dels,!SY.done);
+    var R={};j.readings.forEach(function(x){R[x.date]=1;});
+    var dl=Object.keys(SY.dels).filter(function(d){return R[d];});
+    state.readings=res.merged;save();render();
+    var chain=Promise.resolve();
+    dl.forEach(function(d){chain=chain.then(function(){return post({action:"delete",date:d});});});
+    if(res.push.length)chain=chain.then(function(){return post({action:"upsert",readings:res.push});});
+    return chain.then(function(){
+      SY.pend={};SY.dels={};SY.done=true;saveSY();
+      var t=new Date();setStat("Synced at "+String(t.getHours()).padStart(2,"0")+":"+String(t.getMinutes()).padStart(2,"0")+".");
+    });
+  }).catch(function(e){
+    setStat("Could not sync ("+(e&&e.message?e.message:"no connection")+"). Changes are saved on this device and will go up next time.");
+  }).then(function(){syncing=false;});
 }
 var DB=null,PH={},CUR=null;
 function idb(cb){if(DB)return cb(DB);try{var rq=indexedDB.open('gas-photos',1);rq.onupgradeneeded=function(){rq.result.createObjectStore('p');};rq.onsuccess=function(){DB=rq.result;cb(DB);};rq.onerror=function(){cb(null);};}catch(e){cb(null);}}
@@ -209,7 +265,7 @@ function render(){
   $("tbl").innerHTML=sorted.length?h:'<tr><td class="note">No readings yet.</td></tr>';
   Array.prototype.forEach.call(document.querySelectorAll("button[data-p]"),function(b){b.onclick=function(){pGet(b.getAttribute("data-p"),openImg);};});
   Array.prototype.forEach.call(document.querySelectorAll("button[data-d]"),function(b){
-    b.onclick=function(){state.readings=state.readings.filter(function(x){return x.date!==b.getAttribute("data-d");});pDel(b.getAttribute("data-d"));save();render();};
+    b.onclick=function(){state.readings=state.readings.filter(function(x){return x.date!==b.getAttribute("data-d");});var dd=b.getAttribute("data-d");pDel(dd);save();render();if(SY.url){SY.dels[dd]=1;delete SY.pend[dd];saveSY();syncNow();}};
   });
 }
 $("add").onclick=function(){
@@ -221,6 +277,7 @@ $("add").onclick=function(){
   state.readings.push({date:d,value:v,rate:state.settings.rate,sc:state.settings.sc,cv:state.settings.cv});
   if(CUR){pPut(d,CUR);CUR=null;showPrev();}
   $("v").value="";save();render();
+  if(SY.url){SY.pend[d]=1;delete SY.dels[d];saveSY();syncNow();}
 };
 ["rate","sc","cv","vat"].forEach(function(id){$(id).onchange=function(){var n=parseFloat(this.value);if(!isNaN(n)){state.settings[id]=n;save();}render();};});
 $("unit").onchange=function(){state.settings.unit=this.value;save();render();};
@@ -240,10 +297,15 @@ $("imp").onclick=function(){
       state.readings=Object.keys(map).map(function(d){return map[d];});
     }
     save();render();e.textContent="Imported.";
+    if(SY.url){state.readings.forEach(function(x){SY.pend[x.date]=1;});saveSY();syncNow();}
   }catch(x){e.textContent="Could not read that. Use a backup, or lines like 2025-01-31,4521.3";}
 };
 $("ph").onchange=function(){var f=this.files&&this.files[0],inp=this;if(!f)return;var img=new Image(),u=URL.createObjectURL(f);img.onload=function(){var sc=Math.min(1,1000/Math.max(img.width,img.height)),c=document.createElement("canvas");c.width=Math.round(img.width*sc);c.height=Math.round(img.height*sc);c.getContext("2d").drawImage(img,0,0,c.width,c.height);CUR=c.toDataURL("image/jpeg",0.7);URL.revokeObjectURL(u);showPrev();};img.src=u;inp.value="";};
 $("ov").onclick=function(){this.style.display="none";};
+$("sy_url").value=SY.url;$("sy_key").value=SY.key;
+$("sy_go").onclick=function(){SY.url=$("sy_url").value.trim();SY.key=$("sy_key").value.trim();saveSY();if(!SY.url||!SY.key){setStat("Enter both the address and the password.");return;}syncNow();};
+document.addEventListener("visibilitychange",function(){if(!document.hidden)syncNow();});
+syncNow();
 pKeys();
 if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){});});}
 $("rng").onchange=function(){CH.m=this.value==="all"?"all":parseInt(this.value,10);chart();};
